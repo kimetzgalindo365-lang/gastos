@@ -1,8 +1,12 @@
-const CACHE = 'gastos-v3';
+const CACHE = 'gastos-v4';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.all(FILES.map((f) => fetch(f, { cache: 'no-cache' }).then((r) => r.ok ? c.put(f, r) : null).catch(() => null))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -13,18 +17,20 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Red primero (así recibe siempre la última versión); si no hay conexión, usa la copia guardada.
-// El lector de tickets (tesseract) no se guarda: pesa mucho y solo se usa con conexión.
+// Red primero y saltándose la caché del navegador (así siempre llega la última versión).
+// Sin conexión, usa la copia guardada. El lector de tickets (tesseract) no se guarda.
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  const cacheable = url.origin === location.origin ||
+  const same = url.origin === location.origin;
+  const cacheable = same ||
     url.hostname === 'cdnjs.cloudflare.com' ||
     url.hostname === 'fonts.googleapis.com' ||
     url.hostname === 'fonts.gstatic.com';
   if (!cacheable) return;
+  const req = same ? fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(e.request);
   e.respondWith(
-    fetch(e.request)
+    req
       .then((r) => {
         if (r && (r.ok || r.type === 'opaque')) {
           const copy = r.clone();
@@ -32,6 +38,6 @@ self.addEventListener('fetch', (e) => {
         }
         return r;
       })
-      .catch(() => caches.match(e.request).then((r) => r || (e.request.mode === 'navigate' ? caches.match('./index.html') : undefined)))
+      .catch(() => caches.match(e.request, { ignoreSearch: same }).then((r) => r || (e.request.mode === 'navigate' ? caches.match('./index.html') : undefined)))
   );
 });
