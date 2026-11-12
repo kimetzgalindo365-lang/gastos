@@ -532,7 +532,7 @@
     <button class="ghost-btn" data-close="ticketSheet">Cancelar</button>
     <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
     <input type="file" id="fileInput" accept="image/*,application/pdf" hidden>
-    <input type="file" id="stmtInput" accept=".csv,.txt,.xlsx,.xls,.ods,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+    <input type="file" id="stmtInput" hidden>
   </div>
 </div>
 
@@ -607,8 +607,10 @@
     <div id="stEmpty" hidden>
       <div class="info" style="flex-direction:column;gap:8px">
         <div style="font-size:15px;font-weight:600;color:var(--text)">No he encontrado movimientos en este archivo</div>
-        <div>Prueba con el archivo que descarga tu banco desde «Movimientos» o «Extracto», mejor en <b style="color:var(--text)">Excel o CSV</b>. Los PDF escaneados (una foto del papel) no se pueden leer.</div>
+        <div>Vale el extracto en <b style="color:var(--text)">PDF, Excel o CSV</b> tal cual lo descargas de tu banco («Movimientos» o «Extracto»). Lo único que no se puede leer es un PDF escaneado (una foto del papel).</div>
+        <div>Si tu archivo es el correcto, mándale a Claude una captura de «Ver lo que se ha leído» para adaptar la app a tu banco.</div>
       </div>
+      <details class="raw" id="stDebug"><summary>Ver lo que se ha leído del archivo</summary><pre id="stDebugText"></pre></details>
       <button class="primary-btn" id="stRetry">Probar con otro archivo</button>
     </div>
     <div id="stBody">
@@ -1317,7 +1319,7 @@
   const CATEGORY_KEYWORDS = {
     comida: ['bar ','bar-','cafe','cafeteria','restaurante','rest.','taberna','asador','sidreria','pizzer','burger','kebab','sushi','pintxo','pinchos','txoko','menu','cerveza','mercadona','eroski','carrefour','lidl','alcampo','aldi','supermercado','super ','alimentacion','panaderia','pasteleria','frutas','carniceria','bm supermercados','mcdonald','telepizza','glovo','just eat'],
     transporte: ['gasolinera','repsol','cepsa','galp','petronor','bp ','gasoleo','gasolina','diesel','combustible','carburante','parking','aparcamiento','renfe','bizkaibus','metro bilbao','euskotren','bilbobus','taxi','cabify','uber','peaje','autopista','alsa','vueling','iberia','ryanair'],
-    ocio: ['cine','teatro','concierto','entradas','entrada','discoteca','museo','spotify','netflix','steam','playstation','bolera','escape','ticketmaster','fnac'],
+    ocio: ['cine','teatro','concierto','entradas','entrada','discoteca','museo','spotify','netflix','steam','playstation','bolera','bowling','loteria','escape','ticketmaster','fnac'],
     casa: ['leroy merlin','ikea','bricomart','bricolaje','ferreteria','iberdrola','endesa','naturgy','alquiler','limpieza','droguer','primor','muebles'],
     salud: ['farmacia','parafarmacia','clinica','dentista','dental','optica','fisio','hospital','medico']
   };
@@ -1505,13 +1507,13 @@
     ['el corte ingles','El Corte Inglés','shop'],['fnac','Fnac','shop'],['ikea','IKEA','casa'],['leroy merlin','Leroy Merlin','casa'],['bricomart','Bricomart','casa'],
     ['mercadona','Mercadona','comida'],['eroski','Eroski','comida'],['lidl','Lidl','comida'],['carrefour','Carrefour','comida'],['alcampo','Alcampo','comida'],
     ['aldi','Aldi','comida'],['bm supermercados','BM','comida'],['mcdonald','McDonald\'s','comida'],['burger king','Burger King','comida'],['telepizza','Telepizza','comida'],
-    ['glovo','Glovo','comida'],['just eat','Just Eat','comida'],['starbucks','Starbucks','comida'],['goiko','Goiko','comida'],
+    ['glovo','Glovo','comida'],['just eat','Just Eat','comida'],['starbucks','Starbucks','comida'],['goiko','Goiko','comida'],['mp**dia','Dia','comida'],['supermercados dia','Dia','comida'],['costco','Costco','shop'],
     ['repsol','Repsol','transporte'],['cepsa','Cepsa','transporte'],['moeve','Moeve','transporte'],['galp','Galp','transporte'],['petronor','Petronor','transporte'],
     ['renfe','Renfe','transporte'],['bizkaibus','Bizkaibus','transporte'],['metro bilbao','Metro Bilbao','transporte'],['euskotren','Euskotren','transporte'],
     ['bilbobus','Bilbobus','transporte'],['cabify','Cabify','transporte'],['uber','Uber','transporte'],['ryanair','Ryanair','transporte'],['vueling','Vueling','transporte'],
     ['iberia','Iberia','transporte'],['alsa','Alsa','transporte'],
     ['spotify','Spotify','ocio'],['netflix','Netflix','ocio'],['hbo','HBO Max','ocio'],['disney','Disney+','ocio'],['steam','Steam','ocio'],['playstation','PlayStation','ocio'],
-    ['ticketmaster','Ticketmaster','ocio'],['apple.com','Apple','ocio'],['farmacia','Farmacia','salud']
+    ['ticketmaster','Ticketmaster','ocio'],['anthropic','Claude (Anthropic)',null],['openai','ChatGPT',null],['apple.com','Apple','ocio'],['farmacia','Farmacia','salud']
   ];
 
   let stmt = null;
@@ -1537,9 +1539,29 @@
     if(m) return validISO(+m[1], +m[2], +m[3]);
     m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})(?!\d)/);
     if(m){ let y = +m[3]; if(y < 100) y += 2000; return validISO(y, +m[2], +m[1]); }
-    m = norm(s).match(/^(\d{1,2})[\s\-\/.]+([a-z]{3})[a-z]*\.?[\s\-\/.]+(\d{2,4})(?!\d)/);
-    if(m && MONTH_INDEX[m[2]] != null){ let y = +m[3]; if(y < 100) y += 2000; return validISO(y, MONTH_INDEX[m[2]] + 1, +m[1]); }
+    m = norm(s).match(/^(\d{1,2})[\s\-\/.]+([a-z]{3})[a-z]*\.?(?:[\s\-\/.]+(\d{2,4}))?(?!\d)/);
+    if(m && MONTH_INDEX[m[2]] != null){
+      if(m[3]){ let y = +m[3]; if(y < 100) y += 2000; return validISO(y, MONTH_INDEX[m[2]] + 1, +m[1]); }
+      return withYearHint(MONTH_INDEX[m[2]] + 1, +m[1]);
+    }
+    // Fecha corta sin año (03/10): se usa el año del propio extracto
+    m = s.match(/^(\d{1,2})[-\/.](\d{1,2})$/);
+    if(m) return withYearHint(+m[2], +m[1]);
     return null;
+  }
+  let stmtYearHint = null;
+  function withYearHint(mo, d){
+    let y = stmtYearHint || new Date().getFullYear();
+    let iso = validISO(y, mo, d);
+    if(iso && !stmtYearHint && iso > todayISO()) iso = validISO(y - 1, mo, d);
+    return iso;
+  }
+  function guessYear(texts){
+    const counts = {};
+    texts.forEach(t => { (String(t).match(/(?:^|\D)(20\d{2})(?!\d)/g) || []).forEach(x => { const y = x.replace(/\D/g, ''); counts[y] = (counts[y] || 0) + 1; }); });
+    const best = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+    const y = best ? Number(best) : null;
+    return y && y >= 2000 && y <= new Date().getFullYear() + 1 ? y : null;
   }
   function parseMoney(v){
     if(typeof v === 'number') return isFinite(v) ? v : null;
@@ -1605,12 +1627,15 @@
     if(amount < 0 && debit < 0 && credit < 0) return null;
     const concept = H.map((x, i) => (x && x.length < 40 && /concepto|descripci|detalle|movimiento|observaci|mas datos|informacion adicional|beneficiario|comercio|establecimiento|description|merchant|ordenante|destinatario/.test(x) && !/fecha|importe|saldo|tipo de cambio/.test(x)) ? i : -1).filter(i => i >= 0 && i !== date);
     if(!concept.length) return null;
+    // Columna "Tipo" (p. ej. Trade Republic: Transacción con tarjeta / Operar / Transferencia)
+    const type = find(/^tipo$|^tipo de (operacion|movimiento|transaccion)$|^type$|^transaction type$|^clase$/);
     return {
       date,
       amount: amount >= 0 ? amount : null,
       debit: amount >= 0 ? null : (debit >= 0 ? debit : null),
       credit: amount >= 0 ? null : (credit >= 0 ? credit : null),
-      concept
+      concept,
+      type: type >= 0 && type !== date && !concept.includes(type) ? type : null
     };
   }
 
@@ -1660,93 +1685,189 @@
         if(d) amount = -Math.abs(d); else if(c) amount = Math.abs(c);
       }
       if(amount == null || Math.abs(amount) < 0.005) continue;
-      const concept = cols.concept.map(ci => String(r[ci] == null ? '' : r[ci]).replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ');
+      let concept = cols.concept.map(ci => String(r[ci] == null ? '' : r[ci]).replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ');
+      const type = cols.type != null ? String(r[cols.type] == null ? '' : r[cols.type]).replace(/\s+/g, ' ').trim() : '';
+      if(type) concept = concept ? concept + ' · ' + type : type;
       out.push({ date, amount, raw: concept || '(sin concepto)' });
     }
     return out;
   }
 
+  const MONTH_WORD = '(?:ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic|jan|apr|aug|dec)[a-z]*\\.?';
+  const DATE_SRC = '(?<![\\d.,/])(\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/\\-.]\\d{1,2}[/\\-.]\\d{2,4}|\\d{1,2}[/\\-.]\\d{1,2}|\\d{1,2}[\\s\\-/.]' + MONTH_WORD + '(?:[\\s\\-/.]\\d{2,4})?)(?![\\d,])';
+  const MONEY_SRC = '[-−]?\\s?\\d{1,3}(?:\\.\\d{3})*,\\d{2}-?(?!\\d)|[-−]?\\s?\\d+,\\d{2}-?(?!\\d)|[-−]?\\d{1,3}(?:,\\d{3})*\\.\\d{2}(?![\\d,.])';
+
   function linesToMovements(lines){
     const out = [];
-    const dateRe = /(?:^|\s)(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}-\d{2}-\d{2})(?=\s|$)/;
-    const dateReG = /(?:^|\s)(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}-\d{2}-\d{2})(?=\s|$)/g;
-    const moneyReG = /[-−]?\s?\d{1,3}(?:\.\d{3})*,\d{2}-?(?!\d)|[-−]?\s?\d+,\d{2}-?(?!\d)/g;
-    let prevBal = null, last = null;
+    const dateRe = new RegExp(DATE_SRC, 'i');
+    const dateReG = new RegExp(DATE_SRC, 'gi');
+    const moneyReG = new RegExp(MONEY_SRC, 'g');
+    let prevBal = null, last = null, pending = null;
+    const push = (date, concept, monies) => {
+      const amountStr = monies.length >= 2 ? monies[monies.length - 2] : monies[0];
+      const balance = monies.length >= 2 ? parseMoney(monies[monies.length - 1].replace(/\s/g, '')) : null;
+      let amount = parseMoney(amountStr.replace(/\s/g, ''));
+      if(amount == null) return null;
+      const signed = /[-−]/.test(amountStr);
+      if(!signed && balance != null && prevBal != null){
+        const diff = Math.round((balance - prevBal) * 100) / 100;
+        if(Math.abs(Math.abs(diff) - Math.abs(amount)) < 0.011) amount = diff;
+      }
+      if(balance != null) prevBal = balance;
+      const m = { date, amount, raw: concept || '(sin concepto)', cont: 0 };
+      out.push(m);
+      return m;
+    };
     lines.forEach(line => {
       const dm = line.match(dateRe);
       const monies = line.match(moneyReG) || [];
-      if(dm && monies.length && line.indexOf(dm[1]) < 30){
-        const date = parseAnyDate(dm[1]);
-        if(!date){ last = null; return; }
-        const concept = line.replace(dateReG, ' ').replace(moneyReG, ' ').replace(/\s{2,}/g, ' ').trim();
-        const amountStr = monies.length >= 2 ? monies[monies.length - 2] : monies[0];
-        const balance = monies.length >= 2 ? parseMoney(monies[monies.length - 1].replace(/\s/g, '')) : null;
-        let amount = parseMoney(amountStr.replace(/\s/g, ''));
-        if(amount == null){ last = null; return; }
-        const signed = /[-−]/.test(amountStr);
-        if(!signed && balance != null && prevBal != null){
-          const diff = Math.round((balance - prevBal) * 100) / 100;
-          if(Math.abs(Math.abs(diff) - Math.abs(amount)) < 0.011) amount = diff;
-        }
-        if(balance != null) prevBal = balance;
-        last = { date, amount, raw: concept || '(sin concepto)', cont: 0 };
-        out.push(last);
-      } else if(last && !dm && !monies.length && last.cont < 1 && line.length < 70 && /[a-z]{3}/i.test(line)){
+      const date = dm && line.indexOf(dm[1]) < 30 ? parseAnyDate(dm[1]) : null;
+      const concept = line.replace(dateReG, ' ').replace(moneyReG, ' ').replace(/\s{2,}/g, ' ').trim();
+      if(date && monies.length){
+        last = push(date, concept, monies);
+        pending = null;
+      } else if(date && !monies.length && /[a-z]{3}/i.test(concept)){
+        // Fecha y concepto en una línea, importe en la siguiente
+        pending = { date, concept };
+        last = null;
+      } else if(pending && !date && monies.length){
+        last = push(pending.date, (pending.concept + ' ' + concept).trim(), monies);
+        pending = null;
+      } else if(last && !date && !monies.length && last.cont < 1 && line.length < 70 && /[a-z]{3}/i.test(line)){
         last.raw += ' ' + line.trim();
         last.cont++;
       } else {
         last = null;
+        if(!date) pending = null;
       }
     });
     return out.map(m => ({ date: m.date, amount: m.amount, raw: m.raw }));
   }
 
-  async function pdfLines(file){
+  async function pdfExtract(file){
     await loadScript(PDFJS_URL);
     const lib = window.pdfjsLib;
     lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
     const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
     const lines = [];
+    const rowsItems = [];
     for(let p = 1; p <= Math.min(pdf.numPages, 40); p++){
       setOcrProgress('Leyendo página ' + p + ' de ' + pdf.numPages + '…', 0.1 + 0.8 * p / pdf.numPages);
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
-      const items = content.items.filter(it => it.str && it.str.trim()).map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }));
+      const items = content.items.filter(it => it.str && it.str.trim()).map(it => ({ x: it.transform[4], y: it.transform[5] - p * 10000, w: it.width || 0, h: Math.abs(it.height || it.transform[3]) || 8, s: it.str.trim() }));
       items.sort((a, b) => b.y - a.y || a.x - b.x);
       let cur = null;
       const pageLines = [];
       items.forEach(it => {
-        if(cur && Math.abs(cur.y - it.y) <= 3) cur.items.push(it);
+        if(cur && Math.abs(cur.y - it.y) <= 4) cur.items.push(it);
         else { cur = { y: it.y, items: [it] }; pageLines.push(cur); }
       });
-      pageLines.forEach(l => lines.push(l.items.sort((a, b) => a.x - b.x).map(i => i.s.trim()).join('  ')));
+      pageLines.forEach(l => {
+        l.items.sort((a, b) => a.x - b.x);
+        lines.push(l.items.map(i => i.s).join('  '));
+        rowsItems.push(l.items);
+      });
     }
-    return lines;
+    // Versión en tabla: se colocan los textos bajo la columna de la cabecera más cercana
+    let table = null, header = null, hdrCols = null, prev = null;
+    const moneyRe = new RegExp(MONEY_SRC);
+    rowsItems.forEach(items => {
+      const cells = items.map(i => i.s);
+      const cols = detectColumns(cells);
+      if(cols){
+        header = items.map(i => i.x + i.w / 2);
+        hdrCols = cols;
+        if(!table) table = [cells];
+        prev = null;
+        return;
+      }
+      if(!header) return;
+      const row = new Array(header.length).fill('');
+      items.forEach(i => {
+        const c = i.x + i.w / 2;
+        let best = 0;
+        header.forEach((hx, k) => { if(Math.abs(hx - c) < Math.abs(header[best] - c)) best = k; });
+        row[best] = row[best] ? row[best] + ' ' + i.s : i.s;
+      });
+      const y = Math.min(...items.map(i => i.y));
+      const h = Math.max(...items.map(i => i.h));
+      // Fila partida en varias líneas (p. ej. "01 nov / 2026" o "Transacción / con tarjeta"):
+      // si la línea va pegada a la anterior y no trae fecha ni importe, se une a ese movimiento
+      if(prev && prev.n < 3 && prev.y - (y + h) < 1.2 * h && !row.some(c => moneyRe.test(c)) && !parseAnyDate(row[hdrCols.date] || '')){
+        row.forEach((c, k) => { if(c) prev.row[k] = prev.row[k] ? prev.row[k] + ' ' + c : c; });
+        prev.y = y; prev.n++;
+        return;
+      }
+      table.push(row);
+      prev = parseAnyDate(row[hdrCols.date] || '') ? { row, y, n: 0 } : null;
+    });
+    return { lines, table };
+  }
+
+  let stmtPreview = '', stmtHead = '';
+  function sniffKind(name, bytes){
+    const sig = String.fromCharCode.apply(null, Array.from(bytes.slice(0, 5)));
+    if(sig === '%PDF-' || name.endsWith('.pdf')) return 'pdf';
+    if(sig.slice(0, 2) === 'PK' || (bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0) || /\.(xlsx|xls|xlsm|ods)$/.test(name)) return 'excel';
+    if(/<html|<table/i.test(new TextDecoder().decode(bytes.slice(0, 400)))) return 'excel';
+    return 'text';
   }
 
   async function readStatementFile(file){
     const name = (file.name || '').toLowerCase();
-    if(name.endsWith('.pdf') || file.type === 'application/pdf'){
-      return linesToMovements(await pdfLines(file));
+    const head = new Uint8Array(await file.slice(0, 400).arrayBuffer());
+    const kind = sniffKind(name, head);
+    stmtPreview = ''; stmtHead = '';
+    if(kind === 'pdf'){
+      const { lines, table } = await pdfExtract(file);
+      stmtHead = lines.slice(0, 15).join(' ');
+      stmtYearHint = guessYear(lines);
+      stmtPreview = lines.length ? lines.slice(0, 60).join('\n') : '(El PDF no tiene texto: parece un escaneo o una foto)';
+      const fromTable = table ? tableToMovements(table) : [];
+      const fromLines = linesToMovements(lines);
+      return fromTable.length >= fromLines.length && fromTable.length ? fromTable : fromLines;
     }
-    if(/\.(xlsx|xls|xlsm|ods)$/.test(name)){
+    if(kind === 'excel'){
       if(typeof XLSX === 'undefined') throw new Error('No se ha podido cargar el lector de Excel');
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-      let best = [];
+      let best = [], bestRows = [];
       wb.SheetNames.forEach(n => {
-        const movs = tableToMovements(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }));
-        if(movs.length > best.length) best = movs;
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' });
+        stmtYearHint = guessYear(rows.slice(0, 200).map(r => r.join(' ')));
+        const movs = tableToMovements(rows);
+        if(movs.length > best.length || !bestRows.length){ best = movs.length > best.length ? movs : best; bestRows = rows; }
       });
+      stmtPreview = bestRows.slice(0, 40).map(r => r.filter(c => c !== '').join(' | ')).join('\n');
+      stmtHead = bestRows.slice(0, 15).map(r => r.join(' ')).join(' ');
       return best;
     }
     const buf = await file.arrayBuffer();
     let text = new TextDecoder('utf-8').decode(buf);
     if(text.indexOf('�') > -1) text = new TextDecoder('windows-1252').decode(buf);
-    return tableToMovements(parseCSV(text));
+    const rows = parseCSV(text);
+    stmtYearHint = guessYear(text.split(/\r?\n/).slice(0, 200));
+    stmtPreview = text.split(/\r?\n/).slice(0, 40).join('\n');
+    stmtHead = text.split(/\r?\n/).slice(0, 15).join(' ');
+    return tableToMovements(rows);
   }
 
   function isCardText(t){
     return /tarj|tarjeta|\bcard\b|\bvisa\b|mastercard|maestro|compra en |pago en |apple pay|google pay|samsung pay|contactless|\btpv\b|pago movil|compra comercio|\*\d{4}|x{3,}\d{3,4}/.test(t);
+  }
+
+  function isTransferText(t){
+    return /transferencia|\btransfer\b|\btrf\b|traspaso|outgoing transfer|incoming transfer/.test(t);
+  }
+  // ¿La transferencia va a (o viene de) una cuenta a tu nombre? Se compara con el titular que sale arriba del extracto
+  function toHolder(t, ctx){
+    const head = ctx.head || '';
+    if(!head) return false;
+    const m = t.match(/(?:\bfor\b|\bto\b|\bfrom\b|a favor de|\bpara\b|\bde\b|\ba\b|ordenante:?|beneficiario:?)\s+([a-z][a-z\s]{5,60})/);
+    if(!m) return false;
+    const words = m[1].split(/\s+/).filter(w => w.length >= 4 && !/^(transfer|transferencia|cuenta|banco|bank)$/.test(w)).slice(0, 4);
+    const hits = words.filter(w => head.indexOf(' ' + w) > -1).length;
+    return hits >= 2;
   }
 
   function classifyMovement(m, ctx){
@@ -1758,16 +1879,18 @@
       if(/nomina|salario/.test(t)) return { group: 'ignored', reason: 'Nómina' };
       if(/dividend/.test(t)) return { group: 'ignored', reason: 'Dividendo' };
       if(/interes/.test(t)) return { group: 'ignored', reason: 'Intereses' };
-      if(/traspaso/.test(t) || own) return { group: 'ignored', reason: 'Entre tus cuentas' };
+      if(/traspaso/.test(t) || own || (isTransferText(t) && toHolder(t, ctx))) return { group: 'ignored', reason: 'Entre tus cuentas' };
+      if(/saveback|cashback|bonificaci/.test(t)) return { group: 'ignored', reason: 'Bonificación' };
       return { group: 'ignored', reason: 'Ingreso' };
     }
-    if(/compra (de )?valores|compra (de )?acciones|suscripci.n (de )?fondo|fondo de inversi|\betf\b|broker|trade republic|myinvestor|indexa|degiro|scalable|interactive brokers/.test(t)) return { group: 'ignored', reason: 'Inversión' };
+    if(/compra (de )?valores|compra (de )?acciones|suscripci.n (de )?fondo|fondo de inversi|\betf\b|\betc\b|broker|trade republic|myinvestor|indexa|degiro|scalable|interactive brokers|savings plan|plan de inversi|\boperar\b|buy trade|sell trade|\bquantity\b|bitcoin|\bcrypto|\bcripto/.test(t)) return { group: 'ignored', reason: 'Inversión' };
     if(/traspaso|entre cuentas|cuenta propia|a mi cuenta|a cuenta propia/.test(t) || (own && (/transfer|trf|top.?up|recarga/.test(t) || !card))) return { group: 'ignored', reason: 'Entre tus cuentas' };
+    if(!card && isTransferText(t) && toHolder(t, ctx)) return { group: 'ignored', reason: 'Entre tus cuentas' };
     if(/bizum/.test(t)) return { group: 'doubt', reason: 'Bizum enviado' };
     if(/reintegro|cajero|retirada (de )?efectivo|\batm\b|disposici.n (de )?efectivo/.test(t)) return { group: 'doubt', reason: 'Sacaste efectivo' };
     if(card) return { group: 'card' };
     if(/recibo|adeudo|domicilia|\bsepa\b|direct debit|cargo por recibo/.test(t)) return { group: 'doubt', reason: 'Recibo domiciliado' };
-    if(/transferencia|transf\b|\btrf\b|emitida/.test(t)) return { group: 'doubt', reason: 'Transferencia' };
+    if(/transferencia|transf\b|\btrf\b|emitida/.test(t) || isTransferText(t)) return { group: 'doubt', reason: 'Transferencia' };
     if(/comisi.n|intereses deudores|cuota (de )?mantenimiento|cuota (anual )?tarjeta/.test(t)) return { group: 'doubt', reason: 'Comisión del banco' };
     if(ctx.noCardWords) return { group: 'card' };
     return { group: 'doubt', reason: 'Sin identificar' };
@@ -1776,7 +1899,7 @@
   function cleanMerchant(raw){
     const s = ' ' + norm(raw).replace(/\s+/g, ' ') + ' ';
     for(const b of BRANDS){
-      if(new RegExp('[^a-z]' + escRe(b[0])).test(s)) return { name: b[1], key: norm(b[1]).toUpperCase(), kind: b[2] };
+      if(new RegExp('[^a-z]' + escRe(b[0]) + (b[0].length <= 5 ? '(?![a-z])' : '')).test(s)) return { name: b[1], key: norm(b[1]).toUpperCase(), kind: b[2] };
     }
     if(/bizum/.test(s)){
       const who = String(raw).replace(/.*bizum\s*(enviado|emitido|a favor de|pago)?\s*/i, '').replace(/^(a|al|para|de)\s+/i, '').replace(/\b\d{6,}\b/g, '').trim();
@@ -1849,6 +1972,7 @@
     }
     const ctx = {
       noCardWords: !movs.some(m => isCardText(' ' + norm(m.raw) + ' ')),
+      head: ' ' + norm(stmtHead || '').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ') + ' ',
       rules: getRules(),
       proposals: {}
     };
@@ -1968,7 +2092,10 @@
     $('stSub').textContent = rows.length + (rows.length === 1 ? ' movimiento' : ' movimientos') + ' · ' + stmt.fileName;
     $('stEmpty').hidden = rows.length > 0;
     $('stBody').hidden = rows.length === 0;
-    if(!rows.length) return;
+    if(!rows.length){
+      $('stDebugText').textContent = stmtPreview || '(No se ha podido leer nada del archivo)';
+      return;
+    }
     $('stCardN').textContent = card.length;
     $('stDoubtN').textContent = doubt.length;
     $('stIgnN').textContent = ign.length;
@@ -2033,11 +2160,13 @@
     openLayer('ocrOverlay');
     setOcrProgress('Leyendo extracto…', 0.1);
     let movs = [];
+    stmtYearHint = null;
     try{
       movs = await readStatementFile(file);
     }catch(e){
       console.error(e);
       movs = [];
+      stmtPreview = 'No se ha podido abrir el archivo' + (navigator.onLine ? '.' : ': no hay conexión (hace falta para cargar el lector de PDF/Excel).');
     }
     closeLayer('ocrOverlay');
     stmt = buildStatement(movs, file.name || 'extracto');
@@ -2480,7 +2609,7 @@
   render();
 
   // Solo para pruebas
-  window.__gastos = { parseTicket, parseCSV, tableToMovements, linesToMovements, buildStatement, cleanMerchant };
+  window.__gastos = { parseTicket, parseCSV, tableToMovements, linesToMovements, buildStatement, cleanMerchant, pdfExtract, readStatementFile };
 })();
 </script>
 </body>
