@@ -307,7 +307,8 @@
   .tag-new{margin-left:auto;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;background:var(--amber);color:var(--ink);border-radius:6px;padding:3px 6px;flex-shrink:0;}
   .sheet-note{display:flex;gap:10px;align-items:flex-start;background:var(--ink);border-radius:12px;padding:10px 12px;font-size:12px;color:#A9B2C0;line-height:1.5;}
   .st-sub{font-size:12px;color:#A9B2C0;margin-top:2px;word-break:break-word;}
-  .st-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:18px;}
+  .st-stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px;margin-bottom:18px;}
+  .st-stats .stat[hidden]{display:none;}
   .st-stats .stat{padding:10px 11px;}
   .st-stats .v{font-size:20px;margin:0;}
   .st-stats .k{margin-top:2px;color:#A9B2C0;}
@@ -616,7 +617,7 @@
     <div id="stBody">
       <div class="st-stats">
         <div class="stat"><div class="v" id="stCardN" style="color:var(--amber)">0</div><div class="k">pagos con tarjeta</div></div>
-        <div class="stat"><div class="v" id="stDoubtN">0</div><div class="k">para revisar</div></div>
+        <div class="stat" id="stDoubtStat"><div class="v" id="stDoubtN">0</div><div class="k">añadidos a mano</div></div>
         <div class="stat"><div class="v" id="stIgnN" style="color:var(--text-muted)">0</div><div class="k">ignorados</div></div>
       </div>
       <div class="st-sec-head">
@@ -625,8 +626,8 @@
       </div>
       <div class="st-list" id="stCardList"></div>
       <div id="stDoubtWrap">
-        <div class="section-label" style="margin:22px 0 4px">Revisa estos · no son con tarjeta</div>
-        <div class="st-hint">Son gastos, pero no los pagaste con la tarjeta. Márcalos solo si quieres apuntarlos aquí.</div>
+        <div class="section-label" style="margin:22px 0 4px">Sacados de Ignorados · no son con tarjeta</div>
+        <div class="st-hint">Los has pasado tú con «Es un gasto». Márcalos solo si quieres apuntarlos aquí.</div>
         <div class="st-list" id="stDoubtList"></div>
       </div>
       <div class="st-ign" id="stIgnWrap">
@@ -1806,6 +1807,15 @@
   }
 
   let stmtPreview = '', stmtHead = '';
+  // Texto de la cabecera del extracto (titular, IBAN...): solo lo que va antes de la tabla de movimientos
+  function headBefore(rows){
+    const out = [];
+    for(let i = 0; i < Math.min(rows.length, 25); i++){
+      if(detectColumns(rows[i] || [])) break;
+      out.push((rows[i] || []).join(' '));
+    }
+    return out.length >= Math.min(rows.length, 25) ? '' : out.join(' ');
+  }
   function sniffKind(name, bytes){
     const sig = String.fromCharCode.apply(null, Array.from(bytes.slice(0, 5)));
     if(sig === '%PDF-' || name.endsWith('.pdf')) return 'pdf';
@@ -1821,7 +1831,7 @@
     stmtPreview = ''; stmtHead = '';
     if(kind === 'pdf'){
       const { lines, table } = await pdfExtract(file);
-      stmtHead = lines.slice(0, 15).join(' ');
+      stmtHead = headBefore(lines.map(l => l.split(/\s{2,}/)));
       stmtYearHint = guessYear(lines);
       stmtPreview = lines.length ? lines.slice(0, 60).join('\n') : '(El PDF no tiene texto: parece un escaneo o una foto)';
       const fromTable = table ? tableToMovements(table) : [];
@@ -1839,7 +1849,7 @@
         if(movs.length > best.length || !bestRows.length){ best = movs.length > best.length ? movs : best; bestRows = rows; }
       });
       stmtPreview = bestRows.slice(0, 40).map(r => r.filter(c => c !== '').join(' | ')).join('\n');
-      stmtHead = bestRows.slice(0, 15).map(r => r.join(' ')).join(' ');
+      stmtHead = headBefore(bestRows);
       return best;
     }
     const buf = await file.arrayBuffer();
@@ -1848,7 +1858,7 @@
     const rows = parseCSV(text);
     stmtYearHint = guessYear(text.split(/\r?\n/).slice(0, 200));
     stmtPreview = text.split(/\r?\n/).slice(0, 40).join('\n');
-    stmtHead = text.split(/\r?\n/).slice(0, 15).join(' ');
+    stmtHead = headBefore(rows);
     return tableToMovements(rows);
   }
 
@@ -1883,17 +1893,20 @@
       if(/saveback|cashback|bonificaci/.test(t)) return { group: 'ignored', reason: 'Bonificación' };
       return { group: 'ignored', reason: 'Ingreso' };
     }
-    if(/compra (de )?valores|compra (de )?acciones|suscripci.n (de )?fondo|fondo de inversi|\betf\b|\betc\b|broker|trade republic|myinvestor|indexa|degiro|scalable|interactive brokers|savings plan|plan de inversi|\boperar\b|buy trade|sell trade|\bquantity\b|bitcoin|\bcrypto|\bcripto/.test(t)) return { group: 'ignored', reason: 'Inversión' };
+    // Solo cuentan los pagos con tarjeta. Inversiones, transferencias, traspasos, Bizum, recibos,
+    // efectivo y comisiones nunca se añaden (Kimetz ya los apunta por su cuenta): van a "Ignorados".
+    if(/compra (de )?valores|compra (de )?acciones|suscripci.n (de )?fondo|fondo de inversi|\betf\b|\betc\b|broker|trade republic|myinvestor|indexa|degiro|scalable|interactive brokers|savings plan|plan de inversi|\boperar\b|buy trade|sell trade|\bquantity\b|bitcoin|\bcrypto|\bcripto|\bacciones\b|\bvalores\b|\bisin\b|\bbolsa\b/.test(t)) return { group: 'ignored', reason: 'Inversión' };
     if(/traspaso|entre cuentas|cuenta propia|a mi cuenta|a cuenta propia/.test(t) || (own && (/transfer|trf|top.?up|recarga/.test(t) || !card))) return { group: 'ignored', reason: 'Entre tus cuentas' };
-    if(!card && isTransferText(t) && toHolder(t, ctx)) return { group: 'ignored', reason: 'Entre tus cuentas' };
-    if(/bizum/.test(t)) return { group: 'doubt', reason: 'Bizum enviado' };
-    if(/reintegro|cajero|retirada (de )?efectivo|\batm\b|disposici.n (de )?efectivo/.test(t)) return { group: 'doubt', reason: 'Sacaste efectivo' };
+    if(isTransferText(t) && toHolder(t, ctx)) return { group: 'ignored', reason: 'Entre tus cuentas' };
+    if(/transferencia|transf\b|\btrf\b|emitida|orden de pago/.test(t) || isTransferText(t)) return { group: 'ignored', reason: 'Transferencia' };
+    if(/bizum/.test(t)) return { group: 'ignored', reason: 'Bizum' };
+    if(/reintegro|cajero|retirada (de )?efectivo|\batm\b|disposici.n (de )?efectivo/.test(t)) return { group: 'ignored', reason: 'Efectivo' };
+    if(/comisi.n|intereses deudores|cuota (de )?mantenimiento|cuota (anual )?(de )?tarjeta|cuota (de )?emisi/.test(t)) return { group: 'ignored', reason: 'Comisión del banco' };
+    if(/recibo|adeudo|domicilia|\bsepa\b|direct debit|cargo por recibo/.test(t) && !card) return { group: 'ignored', reason: 'Recibo domiciliado' };
     if(card) return { group: 'card' };
-    if(/recibo|adeudo|domicilia|\bsepa\b|direct debit|cargo por recibo/.test(t)) return { group: 'doubt', reason: 'Recibo domiciliado' };
-    if(/transferencia|transf\b|\btrf\b|emitida/.test(t) || isTransferText(t)) return { group: 'doubt', reason: 'Transferencia' };
-    if(/comisi.n|intereses deudores|cuota (de )?mantenimiento|cuota (anual )?tarjeta/.test(t)) return { group: 'doubt', reason: 'Comisión del banco' };
+    // Extracto sin ninguna palabra de tarjeta (p. ej. el de una tarjeta de crédito): todo lo demás es con tarjeta
     if(ctx.noCardWords) return { group: 'card' };
-    return { group: 'doubt', reason: 'Sin identificar' };
+    return { group: 'ignored', reason: 'No es con tarjeta' };
   }
 
   function cleanMerchant(raw){
@@ -2111,6 +2124,7 @@
     $('stToggleAll').hidden = selectable.length === 0;
 
     $('stDoubtWrap').hidden = doubt.length === 0;
+    $('stDoubtStat').hidden = doubt.length === 0;
     const dl = $('stDoubtList');
     dl.innerHTML = '';
     doubt.forEach(r => dl.appendChild(stmtRowEl(r)));
